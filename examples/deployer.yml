@@ -1,0 +1,80 @@
+# Example deployer.yml configuration
+# See https://github.com/Waiel5/deployer for full documentation
+
+project: myapp
+
+ssh:
+  user: deploy
+  port: 22
+  key_path: ~/.ssh/id_rsa
+
+services:
+  - name: api
+    image: ghcr.io/myorg/api:v1.2.0
+    hosts:
+      - 10.0.1.10
+      - 10.0.1.11
+      - 10.0.1.12
+    ports:
+      - "80:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://db.internal:5432/myapp
+      REDIS_URL: redis://cache.internal:6379
+    volumes:
+      - /var/log/myapp:/app/logs
+    network: bridge
+    restart: unless-stopped
+    deploy:
+      strategy: rolling
+      batch_size: 1
+      delay: 15s
+    health_check:
+      enabled: true
+      type: http
+      endpoint: /healthz
+      port: 3000
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  - name: worker
+    image: ghcr.io/myorg/worker:v1.2.0
+    hosts:
+      - 10.0.1.20
+      - 10.0.1.21
+    environment:
+      QUEUE_URL: redis://cache.internal:6379
+      CONCURRENCY: "4"
+    restart: unless-stopped
+    deploy:
+      strategy: rolling
+      batch_size: 1
+      delay: 10s
+    health_check:
+      enabled: true
+      type: command
+      command: "pgrep -f worker"
+      interval: 5s
+      retries: 3
+
+  - name: nginx
+    image: nginx:1.25-alpine
+    hosts:
+      - 10.0.1.10
+      - 10.0.1.11
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - /etc/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    restart: always
+    deploy:
+      strategy: blue-green
+    health_check:
+      enabled: true
+      type: tcp
+      port: 443
+      interval: 3s
+      retries: 5
